@@ -51,7 +51,8 @@ class BusScheduleUI extends Component
         // CHANGED: Using \App\Models\Schedule::query()
         $schedules = \App\Models\Schedule::query()
             // Eager load relationships to avoid N+1 issues in the view
-            ->with(['bus', 'driver', 'fare']) 
+            ->with(['bus.route', 'bus.busType', 'driver'])
+
             
             // Filter by Search Term (Bus Number OR Driver Name)
             ->when($this->searchTerm, function ($query) use ($searchTerm) {

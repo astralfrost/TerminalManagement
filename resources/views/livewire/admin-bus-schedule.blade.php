@@ -1,6 +1,6 @@
 <div class="p-6 bg-gray-900 min-h-screen text-white">
     <!-- Page Header -->
-    <h1 class="text-3xl font-bold mb-8 text-yellow-500">Admin: Schedule Management</h1>
+    <h1 class="text-3xl font-bold mb-8 text-yellow-500">Schedule Management</h1>
 
     <!-- Session Message -->
     @if (session()->has('message'))
@@ -20,9 +20,10 @@
             {{ $isEditMode ? 'Edit Existing Schedule' : 'Add New Schedule' }}
         </h2>
 
+        {{-- Note: We use wire:model.blur on select and input fields for instant validation after focusing out. --}}
         <form wire:submit.prevent="saveSchedule" class="grid grid-cols-1 md:grid-cols-2 gap-6">
             
-            {{-- Bus Dropdown --}}
+            {{-- Bus Dropdown (Standard Select) --}}
             <div>
                 <label for="bus_id" class="block mb-2 text-sm font-medium text-gray-400">Bus</label>
                 <select wire:model.blur="bus_id" id="bus_id" class="w-full p-3 rounded-lg border-2 border-gray-600 bg-gray-700 text-white focus:ring-yellow-500 focus:border-yellow-500 transition duration-150">
@@ -34,15 +35,58 @@
                 @error('bus_id') <span class="text-red-400 text-sm mt-1 block">{{ $message }}</span> @enderror
             </div>
 
-            {{-- Driver Dropdown --}}
-            <div>
-                <label for="driver_id" class="block mb-2 text-sm font-medium text-gray-400">Driver</label>
-                <select wire:model.blur="driver_id" id="driver_id" class="w-full p-3 rounded-lg border-2 border-gray-600 bg-gray-700 text-white focus:ring-yellow-500 focus:border-yellow-500 transition duration-150">
-                    <option value="">Select Driver</option>
-                    @foreach($drivers as $driver)
-                        <option value="{{ $driver->driver_id }}">{{ $driver->driver_name }}</option>
-                    @endforeach
-                </select>
+            {{-- Driver Dropdown (Searchable using Alpine) --}}
+            {{-- This component pattern can be applied to Bus and Fare for searchable functionality --}}
+            <div x-data="{ 
+                open: false, 
+                search: '',
+                {{-- Convert the PHP Collection to a structured JS array for Alpine --}}
+                driversList: @js($drivers->map(fn($d) => ['id' => $d->driver_id, 'name' => $d->name])), 
+                
+                selectDriver(id, name) {
+                    $wire.set('driver_id', id);
+                    this.search = name;
+                    this.open = false;
+                },
+                get driverName() {
+                    const selected = this.driversList.find(d => d.id == $wire.get('driver_id'));
+                    return selected ? selected.name : '';
+                }
+            }" x-init="$watch('$wire.driver_id', () => { search = driverName; })">
+                <label for="driver_search" class="block mb-2 text-sm font-medium text-gray-400">Driver (Searchable)</label>
+                
+                {{-- Hidden input remains the Livewire binding target for validation and submission --}}
+                <input type="hidden" wire:model.blur="driver_id">
+
+                <div class="relative">
+                    <input type="text"
+                           x-model="search"
+                           @focus="open = true"
+                           {{-- Close dropdown and reset search text if an ID hasn't been selected --}}
+                           @click.outside="open = false; if (!$wire.get('driver_id')) search = ''"
+                           @keydown.escape.prevent.stop="open = false"
+                           placeholder="Search or Select Driver"
+                           class="w-full p-3 rounded-lg border-2 border-gray-600 bg-gray-700 text-white focus:ring-yellow-500 focus:border-yellow-500 transition duration-150"
+                           autocomplete="off">
+                           
+                    <div x-show="open"
+                         x-cloak
+                         class="absolute z-10 w-full mt-1 bg-gray-700 rounded-lg shadow-xl max-h-60 overflow-y-auto border border-gray-600">
+                        
+                        {{-- Filter the driver list based on the search term --}}
+                        <template x-for="driver in driversList.filter(d => d.name.toLowerCase().includes(search.toLowerCase()))" :key="driver.id">
+                            <div @click="selectDriver(driver.id, driver.name)"
+                                 :class="{ 'bg-yellow-600 text-white': $wire.get('driver_id') == driver.id, 'hover:bg-gray-600': $wire.get('driver_id') != driver.id }"
+                                 class="p-3 cursor-pointer text-sm">
+                                <span x-text="driver.name"></span>
+                            </div>
+                        </template>
+                        
+                        <div x-show="driversList.filter(d => d.name.toLowerCase().includes(search.toLowerCase())).length === 0" class="p-3 text-sm text-gray-400">
+                            No drivers found.
+                        </div>
+                    </div>
+                </div>
                 @error('driver_id') <span class="text-red-400 text-sm mt-1 block">{{ $message }}</span> @enderror
             </div>
 
@@ -52,9 +96,8 @@
                 <select wire:model.blur="fare_id" id="fare_id" class="w-full p-3 rounded-lg border-2 border-gray-600 bg-gray-700 text-white focus:ring-yellow-500 focus:border-yellow-500 transition duration-150">
                     <option value="">Select Fare / Route</option>
                     @foreach($fares as $fare)
-                        {{-- NOTE: This assumes Fare model has a 'route' relationship for descriptive name --}}
                         <option value="{{ $fare->fare_id }}">
-                           Fare ID {{ $fare->fare_id }} (Base: ₱{{ number_format($fare->base_fare, 2) }})
+                            Fare ID {{ $fare->fare_id }} (Base: ₱{{ number_format($fare->base_fare, 2) }})
                         </option>
                     @endforeach
                 </select>
@@ -65,22 +108,20 @@
             <div>
                 <label for="departure_time" class="block mb-2 text-sm font-medium text-gray-400">Departure Time (HH:MM)</label>
                 <input type="time" wire:model.blur="departure_time" id="departure_time"
-                       class="w-full p-3 rounded-lg border-2 border-gray-600 bg-gray-700 text-white focus:ring-yellow-500 focus:border-yellow-500 transition duration-150" required>
+                        class="w-full p-3 rounded-lg border-2 border-gray-600 bg-gray-700 text-white focus:ring-yellow-500 focus:border-yellow-500 transition duration-150" required>
                 @error('departure_time') <span class="text-red-400 text-sm mt-1 block">{{ $message }}</span> @enderror
             </div>
             
-            {{-- Bus Type Dropdown (Normal/Air-conditioned) --}}
-            <div class="col-span-1 md:col-span-2">
-                <label for="bus_type" class="block mb-2 text-sm font-medium text-gray-400">Bus Type</label>
-                <select wire:model.blur="bus_type" id="bus_type" class="w-full p-3 rounded-lg border-2 border-gray-600 bg-gray-700 text-white focus:ring-yellow-500 focus:border-yellow-500 transition duration-150" required>
-                    <option value="">Select Type</option>
-                    @foreach($busTypeOptions as $type)
-                        <option value="{{ $type }}">{{ $type }}</option>
-                    @endforeach
-                </select>
-                @error('bus_type') <span class="text-red-400 text-sm mt-1 block">{{ $message }}</span> @enderror
+            {{-- Arrival Time Input --}}
+            <div>
+                <label for="arrival_time" class="block mb-2 text-sm font-medium text-gray-400">Estimated Arrival Time (Optional)</label>
+                <input type="time" wire:model.blur="arrival_time" id="arrival_time"
+                        class="w-full p-3 rounded-lg border-2 border-gray-600 bg-gray-700 text-white focus:ring-yellow-500 focus:border-yellow-500 transition duration-150">
+                @error('arrival_time') <span class="text-red-400 text-sm mt-1 block">{{ $message }}</span> @enderror
             </div>
 
+            {{-- Bus Type Dropdown REMOVED to fix Undefined variable error (Bus Type is linked via Fare) --}}
+            
             {{-- Action Buttons --}}
             <div class="md:col-span-2 flex justify-between gap-4 pt-4">
                 <button type="submit"
@@ -95,56 +136,6 @@
                 @endif
             </div>
         </form>
-    </div>
-
-    <!-- Existing Schedules Table -->
-    <h2 class="text-2xl font-bold mb-6 text-gray-200">Existing Schedules</h2>
-
-    <div class="overflow-x-auto rounded-lg shadow-2xl border border-gray-700">
-        <table class="min-w-full divide-y divide-gray-700">
-            <thead class="bg-gray-700">
-                <tr>
-                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Bus No.</th>
-                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Driver</th>
-                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Departure Time</th>
-                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Bus Type</th>
-                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Fare/Route ID</th>
-                    <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
-                </tr>
-            </thead>
-            <tbody class="bg-gray-800 divide-y divide-gray-700">
-                @forelse ($schedules as $schedule)
-                    <tr class="hover:bg-gray-750 transition duration-150">
-                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{{ $schedule->bus->bus_number ?? 'N/A' }}</td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{{ $schedule->driver->driver_name ?? 'N/A' }}</td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{{ \Carbon\Carbon::parse($schedule->departure_time)->format('h:i A') }}</td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm">
-                            <span class="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full 
-                                {{ $schedule->bus_type == 'Air-conditioned' ? 'bg-blue-600 text-blue-100' : 'bg-green-600 text-green-100' }}">
-                                {{ $schedule->bus_type }}
-                            </span>
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
-                             {{ $schedule->fare_id }}
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                            <button wire:click="editSchedule({{ $schedule->schedule_id }})" class="text-yellow-500 hover:text-yellow-400 transition duration-150 mr-3">
-                                Edit
-                            </button>
-                            <button wire:click="removeSchedule({{ $schedule->schedule_id }})" class="text-red-500 hover:text-red-400 transition duration-150">
-                                Delete
-                            </button>
-                        </td>
-                    </tr>
-                @empty
-                    <tr>
-                        <td colspan="6" class="px-6 py-4 whitespace-nowrap text-center text-sm text-gray-400">
-                            No schedules found. Start by adding one above.
-                        </td>
-                    </tr>
-                @endforelse
-            </tbody>
-        </table>
     </div>
 
     <!-- Pagination -->
